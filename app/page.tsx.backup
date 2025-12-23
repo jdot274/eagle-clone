@@ -1,19 +1,15 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Upload, Search, Grid, List, Filter, LogOut } from 'lucide-react';
+import { Upload, Search, Grid, List, Filter } from 'lucide-react';
 import Sidebar from '@/components/Sidebar';
 import AssetCard from '@/components/AssetCard';
 import UploadModal from '@/components/UploadModal';
 import CreateModal from '@/components/CreateModal';
-import Auth from '@/components/Auth';
 import { Asset, Folder, Tag, ViewMode, SortBy } from '@/lib/types';
-import { supabase } from '@/lib/supabase/client';
-import * as api from '@/lib/supabase/api';
+import { storage } from '@/lib/storage';
 
 export default function Home() {
-  const [user, setUser] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
@@ -28,76 +24,30 @@ export default function Home() {
   const [selectedColors, setSelectedColors] = useState<string[]>([]);
 
   useEffect(() => {
-    // Check auth state
-    supabase.auth.getSession().then(({ data: { session } }: any) => {
-      setUser(session?.user ?? null);
-      setLoading(false);
-      if (session?.user) {
-        loadData();
-      }
-    });
-
-    // Listen for auth changes
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event: any, session: any) => {
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        loadData();
-      }
-    });
-
-    return () => subscription.unsubscribe();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    setAssets(storage.getAssets());
+    setFolders(storage.getFolders());
+    setTags(storage.getTags());
   }, []);
 
-  const loadData = async () => {
-    try {
-      const [assetsData, foldersData, tagsData] = await Promise.all([
-        api.getAssets(),
-        api.getFolders(),
-        api.getTags(),
-      ]);
-      setAssets(assetsData);
-      setFolders(foldersData);
-      setTags(tagsData);
-    } catch (error) {
-      console.error('Error loading data:', error);
-    }
+  const handleUpload = (asset: Asset) => {
+    storage.saveAsset(asset);
+    setAssets(storage.getAssets());
   };
 
-  const handleUpload = async (asset: Asset) => {
-    try {
-      await api.createAsset(asset);
-      await loadData();
-    } catch (error) {
-      console.error('Error uploading asset:', error);
-      alert('Error uploading asset. Please try again.');
-    }
-  };
-
-  const handleDelete = async (id: string) => {
+  const handleDelete = (id: string) => {
     if (confirm('Are you sure you want to delete this asset?')) {
-      try {
-        await api.deleteAsset(id);
-        await loadData();
-      } catch (error) {
-        console.error('Error deleting asset:', error);
-        alert('Error deleting asset. Please try again.');
-      }
+      storage.deleteAsset(id);
+      setAssets(storage.getAssets());
     }
   };
 
-  const handleEdit = async (asset: Asset) => {
+  const handleEdit = (asset: Asset) => {
+    // Simple edit - in a real app, this would open an edit modal
     const newName = prompt('Edit name:', asset.name);
     if (newName && newName !== asset.name) {
-      try {
-        await api.updateAsset(asset.id, { name: newName });
-        await loadData();
-      } catch (error) {
-        console.error('Error updating asset:', error);
-        alert('Error updating asset. Please try again.');
-      }
+      const updated = { ...asset, name: newName, updatedAt: new Date().toISOString() };
+      storage.saveAsset(updated);
+      setAssets(storage.getAssets());
     }
   };
 
@@ -111,17 +61,13 @@ export default function Home() {
     setShowCreateModal(true);
   };
 
-  const handleCreate = async (item: Folder | Tag) => {
-    try {
-      if (createModalType === 'folder') {
-        await api.createFolder(item as Folder);
-      } else {
-        await api.createTag(item as Tag);
-      }
-      await loadData();
-    } catch (error) {
-      console.error('Error creating item:', error);
-      alert('Error creating item. Please try again.');
+  const handleCreate = (item: Folder | Tag) => {
+    if (createModalType === 'folder') {
+      storage.saveFolder(item as Folder);
+      setFolders(storage.getFolders());
+    } else {
+      storage.saveTag(item as Tag);
+      setTags(storage.getTags());
     }
   };
 
@@ -129,13 +75,6 @@ export default function Home() {
     setSelectedTags((prev) =>
       prev.includes(tagId) ? prev.filter((id) => id !== tagId) : [...prev, tagId]
     );
-  };
-
-  const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    setAssets([]);
-    setFolders([]);
-    setTags([]);
   };
 
   const filteredAssets = assets.filter((asset) => {
@@ -187,18 +126,6 @@ export default function Home() {
   const availableColors = Array.from(
     new Set(filteredAssets.flatMap((asset) => asset.colors))
   ).slice(0, 20);
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-white dark:bg-gray-900">
-        <div className="text-lg text-gray-900 dark:text-white">Loading...</div>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return <Auth />;
-  }
 
   return (
     <div className="flex h-screen bg-white dark:bg-gray-900">
@@ -268,14 +195,6 @@ export default function Home() {
               >
                 <Upload className="w-4 h-4" />
                 Upload
-              </button>
-
-              <button
-                onClick={handleSignOut}
-                className="flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
-                title="Sign out"
-              >
-                <LogOut className="w-4 h-4" />
               </button>
             </div>
           </div>

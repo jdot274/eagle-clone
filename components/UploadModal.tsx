@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { X, Upload } from 'lucide-react';
 import { Asset, Folder as FolderType, Tag as TagType } from '@/lib/types';
 import { generateId, extractColors, getFileType, formatFileSize } from '@/lib/utils';
+import { uploadFile } from '@/lib/supabase/api';
+import { supabase } from '@/lib/supabase/client';
 
 interface UploadModalProps {
   isOpen: boolean;
@@ -27,6 +29,7 @@ export default function UploadModal({
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [rating, setRating] = useState(0);
   const [notes, setNotes] = useState('');
+  const [uploading, setUploading] = useState(false);
 
   if (!isOpen) return null;
 
@@ -49,26 +52,46 @@ export default function UploadModal({
   const handleUpload = async () => {
     if (!selectedFile) return;
 
-    const colors = await extractColors(selectedFile);
+    setUploading(true);
+    try {
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        alert('You must be logged in to upload files');
+        return;
+      }
 
-    const asset: Asset = {
-      id: generateId(),
-      name,
-      url: preview || URL.createObjectURL(selectedFile),
-      type: getFileType(selectedFile),
-      size: selectedFile.size,
-      tags: selectedTags.map(id => tags.find(t => t.id === id)?.name || ''),
-      folders: selectedFolders,
-      colors,
-      rating,
-      notes,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
+      // Upload file to Supabase Storage
+      const fileUrl = await uploadFile(selectedFile, user.id);
 
-    onUpload(asset);
-    resetForm();
-    onClose();
+      // Extract colors for images
+      const colors = await extractColors(selectedFile);
+
+      // Create asset object
+      const asset: Asset = {
+        id: generateId(),
+        name,
+        url: fileUrl,
+        type: getFileType(selectedFile),
+        size: selectedFile.size,
+        tags: selectedTags.map(id => tags.find(t => t.id === id)?.name || ''),
+        folders: selectedFolders,
+        colors,
+        rating,
+        notes,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      onUpload(asset);
+      resetForm();
+      onClose();
+    } catch (error) {
+      console.error('Error uploading file:', error);
+      alert('Error uploading file. Please try again.');
+    } finally {
+      setUploading(false);
+    }
   };
 
   const resetForm = () => {
@@ -246,10 +269,10 @@ export default function UploadModal({
           </button>
           <button
             onClick={handleUpload}
-            disabled={!selectedFile}
+            disabled={!selectedFile || uploading}
             className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Upload
+            {uploading ? 'Uploading...' : 'Upload'}
           </button>
         </div>
       </div>
